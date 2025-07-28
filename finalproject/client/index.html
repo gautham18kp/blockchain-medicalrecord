@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blockchain Patient Records</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.8.2/web3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1><i class="fas fa-heartbeat"></i> Secure Patient Records on Blockchain</h1>
+        <p>Encrypted, Secure, and Decentralized Medical Records</p>
+    </header>
+
+    <div class="container">
+        <div class="tab-container">
+            <button class="tab-button active" onclick="openTab('patient')"><i class="fas fa-user icon"></i>Patient Portal</button>
+            <button class="tab-button" onclick="openTab('doctor')"><i class="fas fa-user-md icon"></i>Doctor Portal</button>
+        </div>
+
+        <!-- PATIENT SECTION -->
+        <div id="patient" class="tab-content active">
+            <div class="section">
+                <h2><i class="fas fa-file-medical icon"></i>Encrypt & Upload Records</h2>
+                <div class="form-group">
+                    <input type="file" id="fileInput" accept="*">
+                    <button onclick="uploadToPinata()"><i class="fas fa-upload icon"></i>Encrypt & Upload</button>
+                </div>
+                
+                <div id="keySection" style="display: none;" class="key-display">
+                    <h3><i class="fas fa-key icon"></i>Encryption Key:</h3>
+                    <p id="aesKey" style="font-family: monospace;"></p>
+                    <p><strong>Important:</strong> Save this key to share with authorized doctors!</p>
+                </div>
+                
+                <p id="status" class="status"></p>
+                <p id="fileUrl"></p>
+            </div>
+
+            <div class="section">
+                <h2><i class="fas fa-user-plus icon"></i>Add Patient Information</h2>
+                <div class="form-group">
+                    <input type="text" id="patientName" placeholder="Enter Name">
+                    <input type="number" id="patientAge" placeholder="Enter Age">
+                </div>
+                <div class="form-group">
+                    <input type="text" id="patientDesc" placeholder="Enter Description">
+                    <input type="text" id="patientKey" placeholder="Enter Encryption Key">
+                </div>
+                <button onclick="addPatient()"><i class="fas fa-plus-circle icon"></i>Add Patient</button>
+                <p id="addStatus" class="status"></p>
+            </div>
+
+            <div class="section">
+                <h2><i class="fas fa-list-alt icon"></i>Manage Access Requests</h2>
+                <button onclick="viewRequests()"><i class="fas fa-refresh icon"></i>View Requests</button>
+                <ul id="requestsList"></ul>
+            </div>
+        </div>
+
+        <!-- DOCTOR SECTION -->
+        <div id="doctor" class="tab-content">
+            <div class="two-column">
+                <div class="column">
+                    <div class="section">
+                        <h2><i class="fas fa-key icon"></i>Request Patient Access</h2>
+                        <div class="form-group">
+                            <input type="text" id="doctorAddress" placeholder="Patient Address">
+                            <button onclick="requestAccess()"><i class="fas fa-door-open icon"></i>Request Access</button>
+                        </div>
+                        <p id="requestStatus" class="status"></p>
+                    </div>
+
+                    <div class="section">
+                        <h2><i class="fas fa-search icon"></i>Retrieve Patient Records</h2>
+                        <div class="form-group">
+                            <input type="text" id="searchDoctor" placeholder="Patient Address">
+                            <button onclick="getPatient()"><i class="fas fa-file-medical-alt icon"></i>Get Patient</button>
+                        </div>
+                        <div id="patientDetails" class="patient-details"></div>
+                    </div>
+                </div>
+
+                <div class="column">
+                    <div class="section">
+                        <h2><i class="fas fa-unlock-alt icon"></i>Decrypt Patient Files</h2>
+                        <div class="form-group">
+                            <input type="text" id="decryptKey" placeholder="Enter AES Key">
+                            <button onclick="decryptFile()"><i class="fas fa-eye icon"></i>Decrypt & View</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Large PDF Viewer Area -->
+            <div class="viewer-section">
+                <h2><i class="fas fa-file-pdf icon"></i>Patient File Viewer</h2>
+                <div id="pdfViewerContainer" oncontextmenu="return false;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching functionality
+        function openTab(tabName) {
+            const tabs = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove("active");
+            }
+            
+            const buttons = document.getElementsByClassName("tab-button");
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove("active");
+            }
+            
+            document.getElementById(tabName).classList.add("active");
+            event.currentTarget.classList.add("active");
+        }
+
+        let encryptedData = "";
+        let encryptionKey = "";
+        let ipfsHash = "";
+        // Custom event for access revocation
+        const accessRevokedEvent = new Event('accessRevoked');
+        const JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySW5mb3JtYXRpb24iOnsiaWQiOiJiM2VmYjE4Mi0wMWU0LTRiNTEtYjM3OC02MWUxOTM4NTkwMTkiLCJlbWFpbCI6InJhc2VlZmt2NDZAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsInBpbl9wb2xpY3kiOnsicmVnaW9ucyI6W3siZGVzaXJlZFJlcGxpY2F0aW9uQ291bnQiOjEsImlkIjoiRlJBMSJ9LHsiZGVzaXJlZFJlcGxpY2F0aW9uQ291bnQiOjEsImlkIjoiTllDMSJ9XSwidmVyc2lvbiI6MX0sIm1mYV9lbmFibGVkIjpmYWxzZSwic3RhdHVzIjoiQUNUSVZFIn0sImF1dGhlbnRpY2F0aW9uVHlwZSI6InNjb3BlZEtleSIsInNjb3BlZEtleUtleSI6ImEzNGQyMjJhOTFmY2UyZDZhYjA2Iiwic2NvcGVkS2V5U2VjcmV0IjoiM2ZjNDBkNDA4Y2Q0MDE0NWNkYTY5MTY0MTBkMmNkNTM3NGI2MGUzZTA1NDdkZTVlNTVjOTU1MDY5MmY2ZDkwYyIsImV4cCI6MTc3Mjg3MjI2NX0.f4kJQqnuRMInqsSnEkgzq5PtwpQueEYR2_5XQqRQ4p4"; // Replace with your Pinata JWT Token
+
+        // Listen for the access revoked event
+        document.addEventListener('accessRevoked', function() {
+            // Clear patient details
+            document.getElementById("patientDetails").innerText = "";
+            
+            // Clear PDF viewer
+            const pdfViewerContainer = document.getElementById("pdfViewerContainer");
+            pdfViewerContainer.innerHTML = "";
+            pdfViewerContainer.style.display = "none";
+            
+            // Clear decryption key input
+            document.getElementById("decryptKey").value = "";
+        });
+
+        async function uploadToPinata() {
+            const fileInput = document.getElementById("fileInput");
+            const status = document.getElementById("status");
+            const fileUrlDisplay = document.getElementById("fileUrl");
+
+            if (fileInput.files.length === 0) {
+                status.innerHTML = "❌ Please select a file first!";
+                return;
+            }
+
+            status.innerHTML = "⏳ Encrypting and uploading file...";
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            encryptionKey = CryptoJS.lib.WordArray.random(16).toString(CryptoJS.enc.Hex);
+
+            reader.onload = async function (e) {
+                const fileData = new Uint8Array(e.target.result); // Read as binary data
+                encryptionKey = CryptoJS.lib.WordArray.random(16).toString(CryptoJS.enc.Hex);
+
+                // Convert binary data to WordArray
+                const wordArray = CryptoJS.lib.WordArray.create(fileData);
+                encryptedData = CryptoJS.AES.encrypt(wordArray, encryptionKey).toString();
+
+                document.getElementById("aesKey").innerText = encryptionKey;
+                document.getElementById("keySection").style.display = "block";
+
+                const blob = new Blob([encryptedData], { type: "text/plain" });
+                const encryptedFile = new File([blob], "encrypted_file.txt", { type: "text/plain" });
+
+                const formData = new FormData();
+                formData.append("file", encryptedFile);
+
+                try {
+                    const response = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${JWT}` },
+                        body: formData,
+                    });
+
+                    const result = await response.json();
+                    if (result.IpfsHash) {
+                        ipfsHash = result.IpfsHash;
+                        const ipfsUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
+                        status.innerHTML = "✅ File uploaded successfully!";
+                        fileUrlDisplay.innerHTML = `🔗 <a href="${ipfsUrl}" target="_blank">View Encrypted File on IPFS</a>`;
+                        console.log("IPFS File URL:", ipfsUrl);
+                        localStorage.setItem("ipfsHash", ipfsHash); // Store in local storage
+                    } else {
+                        throw new Error("No IPFS hash returned from Pinata");
+                    }
+                } catch (error) {
+                    status.innerHTML = "❌ Upload failed!";
+                    console.error("Upload error:", error);
+                }
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function decryptFile() {
+            ipfsHash = localStorage.getItem("ipfsHash") || "";
+            console.log("Loaded IPFS Hash from Storage:", ipfsHash);
+
+            const decryptKey = document.getElementById("decryptKey").value;
+            const pdfViewerContainer = document.getElementById("pdfViewerContainer");
+
+            if (!decryptKey) {
+                alert("Please enter the decryption key.");
+                return;
+            }
+
+            if (!ipfsHash) {
+                alert("No encrypted file found. Please upload one first.");
+                return;
+            }
+
+            try {
+                // Fetch Encrypted File from IPFS
+                const ipfsUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
+                const response = await fetch(ipfsUrl);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch file: ${response.statusText}`);
+                }
+
+                const encryptedText = await response.text();
+
+                if (!encryptedText || encryptedText.length < 100) { 
+                    console.error("Corrupted or incomplete encrypted file.");
+                    alert("Invalid encrypted file data.");
+                    return;
+                }
+
+                console.log("Fetched Encrypted Data Length:", encryptedText.length);
+
+                // Decrypt Data
+                const decryptedText = CryptoJS.AES.decrypt(encryptedText, decryptKey).toString(CryptoJS.enc.Base64);
+
+                if (!decryptedText) {
+                    alert("Decryption failed. Invalid key?");
+                    return;
+                }
+
+                const pdfBlob = new Blob(
+                    [Uint8Array.from(atob(decryptedText), c => c.charCodeAt(0))], 
+                    { type: "application/pdf" }
+                );
+
+                // Render PDF Using PDF.js
+                pdfViewerContainer.style.display = "block";
+                renderPDF(URL.createObjectURL(pdfBlob));
+
+            } catch (error) {
+                console.error("Decryption failed:", error);
+                alert("Decryption failed. Please check your key and try again.");
+            }
+        }
+
+
+        function renderPDF(pdfUrl) {
+            const container = document.getElementById("pdfViewerContainer");
+
+            // Create a new section for each PDF instead of clearing the old one
+            const pdfSection = document.createElement("div");
+            pdfSection.style.margin = "10px 0";
+            pdfSection.style.padding = "10px";
+            pdfSection.style.background = "#fff";
+
+            // Create a title for each PDF
+            const title = document.createElement("h3");
+            title.innerHTML = `<i class="fas fa-file-pdf"></i> Viewing Patient File`;
+            pdfSection.appendChild(title);
+
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+
+            pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    pdf.getPage(i).then(page => {
+                        const canvas = document.createElement("canvas");
+                        pdfSection.appendChild(canvas);
+
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+
+                        const ctx = canvas.getContext("2d");
+                        page.render({ canvasContext: ctx, viewport: viewport });
+                    });
+                }
+            });
+
+            container.innerHTML = ''; // Clear previous content
+            container.appendChild(pdfSection); // Append the new PDF
+            container.style.display = "block"; // Ensure the viewer is visible
+        }
+
+        
+        let contract;
+        let accounts;
+        let userAddress;
+        let revokeSubscription = null;
+
+        const contractABI = [
+            {
+                "anonymous": false,
+                "inputs": [
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "uploader",
+                        "type": "address"
+                    },
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "doctor",
+                        "type": "address"
+                    }
+                ],
+                "name": "AccessApproved",
+                "type": "event"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "doctor",
+                        "type": "address"
+                    },
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "requester",
+                        "type": "address"
+                    }
+                ],
+                "name": "AccessRequested",
+                "type": "event"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "uploader",
+                        "type": "address"
+                    },
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "doctor",
+                        "type": "address"
+                    }
+                ],
+                "name": "AccessRevoked",
+                "type": "event"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "uploader",
+                        "type": "address"
+                    }
+                ],
+                "name": "PatientAdded",
+                "type": "event"
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "string",
+                        "name": "_name",
+                        "type": "string"
+                    },
+                    {
+                        "internalType": "uint256",
+                        "name": "_age",
+                        "type": "uint256"
+                    },
+                    {
+                        "internalType": "string",
+                        "name": "_description",
+                        "type": "string"
+                    },
+                    {
+                        "internalType": "string",
+                        "name": "_key",
+                        "type": "string"
+                    }
+                ],
+                "name": "addPatient",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "address",
+                        "name": "_uploader",
+                        "type": "address"
+                    }
+                ],
+                "name": "requestAccess",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "viewRequests",
+                "outputs": [
+                    {
+                        "components": [
+                            {
+                                "internalType": "address",
+                                "name": "requester",
+                                "type": "address"
+                            },
+                            {
+                                "internalType": "bool",
+                                "name": "approved",
+                                "type": "bool"
+                            }
+                        ],
+                        "internalType": "struct PatientRecords.Request[]",
+                        "name": "",
+                        "type": "tuple[]"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function",
+                "constant": true
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "address",
+                        "name": "_requester",
+                        "type": "address"
+                    }
+                ],
+                "name": "approveRequest",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "address",
+                        "name": "_requester",
+                        "type": "address"
+                    }
+                ],
+                "name": "revokeAccess",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "address",
+                        "name": "_uploader",
+                        "type": "address"
+                    }
+                ],
+                "name": "getPatient",
+                "outputs": [
+                    {
+                        "components": [
+                            {
+                                "internalType": "string",
+                                "name": "name",
+                                "type": "string"
+                            },
+                            {
+                                "internalType": "uint256",
+                                "name": "age",
+                                "type": "uint256"
+                            },
+                            {
+                                "internalType": "string",
+                                "name": "description",
+                                "type": "string"
+                            },
+                            {
+                                "internalType": "string",
+                                "name": "key",
+                                "type": "string"
+                            }
+                        ],
+                        "internalType": "struct PatientRecords.Patient[]",
+                        "name": "",
+                        "type": "tuple[]"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function",
+                "constant": true
+            }
+        ];
+        const contractAddress = "0x956a9630aad830760030666A87Cd24b4A1936352";
+
+        async function connectBlockchain() {
+            if (window.ethereum) {
+                window.web3 = new Web3(window.ethereum);
+                await window.ethereum.request({ method: "eth_requestAccounts" });
+                accounts = await web3.eth.getAccounts();
+                userAddress = accounts[0];
+                contract = new web3.eth.Contract(contractABI, contractAddress);
+                console.log("Connected to MetaMask:", userAddress);
+                s
+                // Listen for AccessRevoked events
+                setupRevokeListener();
+            } else {
+                alert("MetaMask not found. Please install MetaMask.");
+            }
+        }
+
+        // Setup listener for AccessRevoked events
+        function setupRevokeListener() {
+            if (revokeSubscription) {
+                revokeSubscription.unsubscribe();
+            }
+            
+            revokeSubscription = contract.events.AccessRevoked({
+                filter: { doctor: userAddress },
+            }, function(error, event) {
+                if (!error) {
+                    console.log("Access Revoked Event Detected:", event);
+                    // Trigger access revoked cleanup
+                    document.dispatchEvent(accessRevokedEvent);
+                } else {
+                    console.error("Error with event listener:", error);
+                }
+            });
+            
+            console.log("Revoke event listener setup complete");
+        }
+
+        async function addPatient() {
+            const name = document.getElementById("patientName").value;
+            const age = document.getElementById("patientAge").value;
+            const description = document.getElementById("patientDesc").value;
+            const key = document.getElementById("patientKey").value;
+
+            if (!name || !age || !description || !key) {
+                document.getElementById("addStatus").innerText = "❌ Please fill in all fields.";
+                return;
+            }
+
+            try {
+                document.getElementById("addStatus").innerText = "⏳ Adding patient record to blockchain...";
+                await contract.methods.addPatient(name, age, description, key).send({ from: userAddress });
+                document.getElementById("addStatus").innerText = "✅ Patient Record added successfully!";
+            } catch (error) {
+                console.error("Error adding patient:", error);
+                document.getElementById("addStatus").innerText = "❌ Failed to add Patient Record.";
+            }
+        }
+
+        async function requestAccess() {
+            const doctor = document.getElementById("doctorAddress").value;
+            
+            if (!doctor) {
+                document.getElementById("requestStatus").innerText = "❌ Please enter patient address.";
+                return;
+            }
+            
+            try {
+                document.getElementById("requestStatus").innerText = "⏳ Sending access request...";
+                await contract.methods.requestAccess(doctor).send({ from: userAddress });
+                document.getElementById("requestStatus").innerText = "✅ Access request sent!";
+            } catch (error) {
+                console.error("Error requesting access:", error);
+                document.getElementById("requestStatus").innerText = "❌ Error requesting access: " + error.message;
+            }
+        }
+        
+        async function viewRequests() {
+            try {
+                const requests = await contract.methods.viewRequests().call({ from: userAddress });
+                const requestsList = document.getElementById("requestsList");
+                requestsList.innerHTML = "";
+                
+                if (requests.length === 0) {
+                    requestsList.innerHTML = "<p>No access requests found.</p>";
+                    return;
+                }
+                
+                for (let i = 0; i < requests.length; i++) {
+                    const requester = requests[i].requester;
+                    const approved = requests[i].approved;
+                    
+                    const listItem = document.createElement("li");
+                    
+                    if (!approved) {
+                        listItem.innerHTML = `
+                            <div>
+                                <strong>Doctor Address:</strong> ${requester.substring(0, 6)}...${requester.substring(38)}
+                                <span class="status-badge">Pending</span>
+                            </div>
+                            <div>
+                                <button class="approve-btn" onclick="approveRequest('${requester}')">
+                                    <i class="fas fa-check-circle"></i> Approve
+                                </button>
+                            </div>
+                        `;
+                    } else {
+                        listItem.innerHTML = `
+                            <div>
+                                <strong>Doctor Address:</strong> ${requester.substring(0, 6)}...${requester.substring(38)}
+                                <span class="status-badge approved">Approved</span>
+                            </div>
+                            <div>
+                                <button class="revoke-btn" onclick="revokeAccess('${requester}')">
+                                    <i class="fas fa-times-circle"></i> Revoke Access
+                                </button>
+                            </div>
+                        `;
+                    }
+                    
+                    requestsList.appendChild(listItem);
+                }
+            } catch (error) {
+                console.error("Error viewing requests:", error);
+                document.getElementById("requestsList").innerHTML = "<p>Error loading requests.</p>";
+            }
+        }
+        
+        async function approveRequest(requester) {
+            try {
+                await contract.methods.approveRequest(requester).send({ from: userAddress });
+                alert("Access approved successfully!");
+                viewRequests(); // Refresh the list
+            } catch (error) {
+                console.error("Error approving request:", error);
+                alert("Error approving access: " + error.message);
+            }
+        }
+        
+        async function revokeAccess(requester) {
+            try {
+                await contract.methods.revokeAccess(requester).send({ from: userAddress });
+                alert("Access revoked successfully!");
+                viewRequests(); // Refresh the list
+            } catch (error) {
+                console.error("Error revoking access:", error);
+                alert("Error revoking access: " + error.message);
+            }
+        }
+        
+        async function getPatient() {
+            const patientAddress = document.getElementById("searchDoctor").value;
+            
+            if (!patientAddress) {
+                alert("Please enter patient address.");
+                return;
+            }
+            
+            try {
+                const patient = await contract.methods.getPatient(patientAddress).call({ from: userAddress });
+                const detailsDiv = document.getElementById("patientDetails");
+                
+                if (patient.length === 0) {
+                    detailsDiv.innerText = "No patient records found or access not granted.";
+                    return;
+                }
+                
+                // We'll use the most recent patient record (last in array)
+                const latestRecord = patient[patient.length - 1];
+                let details = `Name: ${latestRecord.name}\n`;
+                details += `Age: ${latestRecord.age}\n`;
+                details += `Description: ${latestRecord.description}\n`;
+                
+                // Auto-fill the decryption key
+                document.getElementById("decryptKey").value = latestRecord.key;
+                
+                detailsDiv.innerText = details;
+            } catch (error) {
+                console.error("Error getting patient:", error);
+                document.getElementById("patientDetails").innerText = "Error retrieving patient data: " + error.message;
+            }
+        }
+        
+        // Initialize the app
+        window.addEventListener("load", async () => {
+            await connectBlockchain();
+        });
+    </script>
+</body>
+</html>
